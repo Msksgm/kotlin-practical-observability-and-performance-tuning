@@ -1,0 +1,57 @@
+name: private-isu-kotlin
+
+services:
+  nginx:
+    image: nginx:1.27
+    depends_on:
+      - app
+    volumes:
+      - ./etc/nginx/conf.d:/etc/nginx/conf.d
+      - ./public:/public
+    ports:
+      - "80:80"
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    depends_on:
+      - mysql
+      - memcached
+    environment:
+      ISUCONP_DB_HOST: mysql
+      ISUCONP_DB_PORT: 3306
+      ISUCONP_DB_USER: root
+      ISUCONP_DB_PASSWORD: root
+      ISUCONP_DB_NAME: isuconp
+      ISUCONP_MEMCACHED_ADDRESS: memcached:11211
+    volumes:
+      - ./public:/home/public
+    init: true
+    deploy:
+      resources:
+        limits:
+          cpus: "1"
+          memory: 1g
+
+  mysql:
+    image: mysql:8.4
+    environment:
+      MYSQL_ROOT_HOST: "%"
+      MYSQL_ROOT_PASSWORD: root
+    volumes:
+      - mysql:/var/lib/mysql
+      - ./sql:/docker-entrypoint-initdb.d
+    ports:
+      - "3306:3306"
+    deploy:
+      resources:
+        limits:
+          cpus: "1"
+          memory: 1g
+
+  memcached:
+    image: memcached:1.6
+
+volumes:
+  mysql:

@@ -1,0 +1,41 @@
+# Gradle
+.gradle/
+build/
+
+# IntelliJ IDEA
+.idea/
+*.iml
+out/
+
+# VS Code
+.vscode/
+
+# Eclipse
+.classpath
+.project
+.settings/
+bin/
+
+# JVM crash logs
+hs_err_pid*
+replay_pid*
+
+# Compiled class files
+*.class
+
+# Logs
+*.log
+
+# Local config (potentially contains secrets)
+local.properties
+.env
+.env.local
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Bench seed (fetched at runtime via curl from upstream releases)
+sql/dump.sql.bz2
+
+provisioning/hosts

@@ -1,0 +1,9 @@
+ktor:
+  deployment:
+    port: 8080
+  application:
+    modules:
+      - io.github.msksgm.SerializationKt.configureSerialization
+      - io.github.msksgm.SecurityKt.configureSecurity
+      - io.github.msksgm.FreemarkerKt.configureFreemarker
+      - io.github.msksgm.RoutingKt.configureRouting

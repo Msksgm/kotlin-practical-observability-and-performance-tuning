@@ -1,0 +1,21 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": [
+    "config:recommended",
+    "helpers:pinGitHubActionDigests"
+  ],
+  "lockFileMaintenance": {
+    "enabled": true
+  },
+  "packageRules": [
+    {
+      "matchDatasources": [
+        "docker"
+      ],
+      "matchPackageNames": [
+        "nginx"
+      ],
+      "versioning": "regex:^(?<major>[0-9]+)\\.(?<minor>[0-9]*[02468])(?<patch>\\d*)$"
+    }
+  ]
+}

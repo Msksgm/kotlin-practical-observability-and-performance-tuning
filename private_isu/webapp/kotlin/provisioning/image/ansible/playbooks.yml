@@ -1,0 +1,84 @@
+---
+- name: Switch private-isu AMI from isu-ruby to isu-kotlin
+  hosts: app
+  gather_facts: yes
+
+  vars:
+    repo_url: https://github.com/Msksgm/private-isu-kotlin.git
+    repo_branch: main
+    app_dir: /home/isucon/private_isu/webapp/kotlin
+    isucon_user: isucon
+    dist_bin: "{{ app_dir }}/build/install/private-isu-kotlin/bin/private-isu-kotlin"
+
+  tasks:
+    - name: Install OpenJDK 21 (JDK headless)
+      become: yes
+      apt:
+        name: openjdk-21-jdk-headless
+        state: present
+        update_cache: yes
+        cache_valid_time: 3600
+
+    - name: Clone private-isu-kotlin
+      become: yes
+      become_user: "{{ isucon_user }}"
+      git:
+        repo: "{{ repo_url }}"
+        dest: "{{ app_dir }}"
+        version: "{{ repo_branch }}"
+        force: yes
+      register: clone_result
+
+    - name: Build distribution (./gradlew installDist)
+      become: yes
+      become_user: "{{ isucon_user }}"
+      command: ./gradlew --no-daemon installDist
+      args:
+        chdir: "{{ app_dir }}"
+      when: clone_result.changed or not ansible_check_mode
+
+    - name: Install isu-kotlin systemd unit
+      become: yes
+      copy:
+        src: ../files/etc/systemd/system/isu-kotlin.service
+        dest: /etc/systemd/system/isu-kotlin.service
+        owner: root
+        group: root
+        mode: '0644'
+      notify: daemon-reload
+
+    - name: Flush handlers so daemon-reload runs before service ops
+      meta: flush_handlers
+
+    - name: Stop and disable isu-ruby
+      become: yes
+      systemd:
+        name: isu-ruby
+        state: stopped
+        enabled: no
+      failed_when: false
+
+    - name: Enable and (re)start isu-kotlin
+      become: yes
+      systemd:
+        name: isu-kotlin
+        state: restarted
+        enabled: yes
+
+    - name: Wait for app to listen on :8080
+      wait_for:
+        port: 8080
+        delay: 3
+        timeout: 60
+
+    - name: Smoke check via nginx (HTTP 200 on /)
+      uri:
+        url: http://localhost/
+        return_content: no
+        status_code: 200
+
+  handlers:
+    - name: daemon-reload
+      become: yes
+      systemd:
+        daemon_reload: yes

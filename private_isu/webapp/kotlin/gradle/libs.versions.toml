@@ -1,0 +1,22 @@
+[versions]
+kotlin = "2.3.20"
+ktor = "3.4.3"
+logback = "1.5.21"
+hikari-cp = "7.0.2"
+mysql-connector = "9.7.0"
+jdbi = "3.52.0"
+xmemcached = "2.4.9"
+
+[libraries]
+logback-classic = { module = "ch.qos.logback:logback-classic", version.ref = "logback" }
+hikari-cp = { module = "com.zaxxer:HikariCP", version.ref = "hikari-cp" }
+mysql-connector = { module = "com.mysql:mysql-connector-j", version.ref = "mysql-connector" }
+jdbi-core = { module = "org.jdbi:jdbi3-core", version.ref = "jdbi" }
+jdbi-kotlin = { module = "org.jdbi:jdbi3-kotlin", version.ref = "jdbi" }
+xmemcached = { module = "com.googlecode.xmemcached:xmemcached", version.ref = "xmemcached" }
+
+[plugins]
+kotlin-jvm = { id = "org.jetbrains.kotlin.jvm", version.ref = "kotlin" }
+kotlin-multiplatform = { id = "org.jetbrains.kotlin.multiplatform", version.ref = "kotlin" }
+kotlin-serialization = { id = "org.jetbrains.kotlin.plugin.serialization", version.ref = "kotlin" }
+ktor = { id = "io.ktor.plugin", version.ref = "ktor" }

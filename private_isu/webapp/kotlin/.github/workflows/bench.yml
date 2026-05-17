@@ -1,0 +1,77 @@
+name: bench
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  UPSTREAM_REF: master
+
+jobs:
+  bench:
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Fetch seed dump
+        run: |
+          mkdir -p sql
+          curl -L --fail -o sql/dump.sql.bz2 \
+            https://github.com/catatsuy/private-isu/releases/download/img/dump.sql.bz2
+
+      - name: Fetch upstream (benchmarker source + userdata)
+        run: |
+          git clone --depth=1 --branch "$UPSTREAM_REF" \
+            https://github.com/catatsuy/private-isu /tmp/upstream
+          cd /tmp/upstream/benchmarker/userdata
+          curl -L --fail -O \
+            https://github.com/catatsuy/private-isu/releases/download/img/img.zip
+          unzip -qq -o img.zip
+
+      - name: Build benchmarker image
+        run: docker build -t private-isu-benchmarker /tmp/upstream/benchmarker
+
+      - name: Start stack
+        run: docker compose up --build -d
+
+      - name: Wait for MySQL init
+        run: |
+          for i in $(seq 1 60); do
+            count=$(docker compose exec -T mysql \
+              mysql -uroot -proot isuconp -N -B \
+              -e "SELECT COUNT(*) FROM posts" 2>/dev/null || echo "0")
+            if [ "${count:-0}" -gt "0" ]; then
+              echo "MySQL ready: $count posts"
+              exit 0
+            fi
+            echo "Waiting for MySQL... ($i/60, count=$count)"
+            sleep 10
+          done
+          echo "MySQL did not become ready in time" >&2
+          exit 1
+
+      - name: Run benchmark
+        run: |
+          NET=$(docker network ls --format '{{.Name}}' | grep private-isu-kotlin)
+          docker run --network "$NET" -i private-isu-benchmarker \
+            /bin/benchmarker -t http://nginx -u /opt/userdata \
+            | tee benchmark_output.json
+
+      - name: Show stack logs
+        if: always()
+        run: docker compose logs --no-color
+
+      - name: Verify bench pass
+        run: jq -e '.pass == true' benchmark_output.json

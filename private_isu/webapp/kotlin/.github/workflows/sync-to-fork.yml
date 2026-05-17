@@ -1,0 +1,193 @@
+name: sync-to-fork
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Show diff only, do not push"
+        type: boolean
+        default: false
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  pull-requests: write
+
+env:
+  TARGET_REPO: Msksgm/private-isu
+  TARGET_BRANCH: kotlin-impl
+  TARGET_SUBDIR: webapp/kotlin
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout source (private-isu-kotlin)
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          path: source
+          persist-credentials: false
+          fetch-depth: 1
+
+      - name: Generate GitHub App token for target
+        id: app-token
+        uses: actions/create-github-app-token@f8d387b68d61c58ab83c6c016672934102569859 # v3.0.0
+        with:
+          app-id: ${{ secrets.SYNC_APP_ID }}
+          private-key: ${{ secrets.SYNC_APP_PRIVATE_KEY }}
+          owner: Msksgm
+          repositories: private-isu
+
+      - name: Checkout target (private-isu kotlin-impl)
+        run: |
+          git clone --depth=1 --branch "$TARGET_BRANCH" \
+            "https://x-access-token:${GH_TOKEN}@github.com/${TARGET_REPO}.git" target
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+
+      - name: Stage whitelisted paths
+        run: |
+          set -euo pipefail
+          PATHS=(src gradle gradlew gradlew.bat build.gradle.kts settings.gradle.kts gradle.properties Dockerfile README.md .gitignore)
+          rm -rf staging
+          mkdir -p staging
+          for p in "${PATHS[@]}"; do
+            if [ -e "source/$p" ]; then
+              cp -R "source/$p" "staging/$p"
+            else
+              echo "WARN: source/$p missing, skipping" >&2
+            fi
+          done
+          if [ -z "$(ls -A staging)" ]; then
+            echo "ERROR: staging is empty; aborting to avoid wiping target/${TARGET_SUBDIR}" >&2
+            exit 1
+          fi
+
+      - name: Rsync staging into target/webapp/kotlin
+        run: |
+          set -euo pipefail
+          mkdir -p "target/${TARGET_SUBDIR}"
+          rsync -av --checksum --delete staging/ "target/${TARGET_SUBDIR}/"
+
+      - name: Compute commit metadata
+        id: meta
+        run: |
+          short_sha=$(git -C source rev-parse --short HEAD)
+          echo "short_sha=${short_sha}" >> "$GITHUB_OUTPUT"
+
+      - name: Show diff
+        id: diff
+        working-directory: target
+        run: |
+          git status
+          git --no-pager diff --stat | tee diff-stat.txt
+          git --no-pager diff | head -n 500 > diff-body.txt
+          if git diff --quiet; then
+            echo "has_diff=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "has_diff=true" >> "$GITHUB_OUTPUT"
+            echo "--- diff body (truncated to 500 lines) ---"
+            cat diff-body.txt
+          fi
+
+      - name: Comment diff on PR
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@60a0d83039c74a4aee543508d2ffcb1c3799cdea # v7.0.1
+        env:
+          HAS_DIFF: ${{ steps.diff.outputs.has_diff }}
+          SHORT_SHA: ${{ steps.meta.outputs.short_sha }}
+        with:
+          script: |
+            const fs = require('fs');
+            const marker = '<!-- sync-to-fork-diff -->';
+            const hasDiff = process.env.HAS_DIFF === 'true';
+            const sha = process.env.SHORT_SHA;
+
+            let body;
+            if (hasDiff) {
+              const stat = fs.readFileSync('target/diff-stat.txt', 'utf8');
+              const diffBody = fs.readFileSync('target/diff-body.txt', 'utf8');
+              body = [
+                marker,
+                '## sync-to-fork preview',
+                '',
+                'この PR がマージされると、`Msksgm/private-isu` の `kotlin-impl` ブランチの `webapp/kotlin/` に以下の変更が同期されます。',
+                '',
+                '```',
+                stat,
+                '```',
+                '',
+                '<details><summary>Full diff (上位 500 行まで)</summary>',
+                '',
+                '```diff',
+                diffBody,
+                '```',
+                '',
+                '</details>',
+                '',
+                `_Synced from \`private-isu-kotlin@${sha}\`_`,
+              ].join('\n');
+            } else {
+              body = [
+                marker,
+                '## sync-to-fork preview',
+                '',
+                'この PR には fork に同期される変更はありません。',
+                '',
+                `_Checked at \`private-isu-kotlin@${sha}\`_`,
+              ].join('\n');
+            }
+
+            const { data: comments } = await github.rest.issues.listComments({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+            });
+            const existing = comments.find(c => c.body && c.body.includes(marker));
+
+            if (existing) {
+              await github.rest.issues.updateComment({
+                comment_id: existing.id,
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                body,
+              });
+            } else {
+              await github.rest.issues.createComment({
+                issue_number: context.issue.number,
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                body,
+              });
+            }
+
+      - name: Commit and push
+        if: ${{ github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.dry_run != true) }}
+        working-directory: target
+        env:
+          SHORT_SHA: ${{ steps.meta.outputs.short_sha }}
+        run: |
+          set -euo pipefail
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          if git diff --cached --quiet; then
+            echo "No changes; skipping commit."
+            exit 0
+          fi
+          git commit -m "sync: from private-isu-kotlin@${SHORT_SHA}"
+          git push origin "$TARGET_BRANCH"
+
+      - name: Dry-run notice
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run == true }}
+        run: |
+          echo "Dry run: diff shown above, no push performed."
