@@ -31,16 +31,14 @@ ssh -F "$SSH_CONFIG_FILE" "$TARGET_HOST" 'touch ~/.hushlogin' 2>&1 || {
 }
 
 # アップロード(上書き)
-rsync -az ./private_isu/webapp/golang/ "$TARGET_HOST":~/private_isu/webapp/golang/
+rsync -az ./private_isu/webapp/kotlin/ "$TARGET_HOST":~/private_isu/webapp/kotlin/
 # ビルドと再起動
 ssh -F "$SSH_CONFIG_FILE" "$TARGET_HOST" <<'EOF'
-export PATH="/home/isucon/.local/go/bin/:$PATH" && cd ~/private_isu/webapp/golang/ && go mod tidy && make -B app
+cd ~/private_isu/webapp/kotlin/ && ./gradlew --no-daemon installDist
 
 sudo -n systemctl disable --now isu-ruby
-sudo -n systemctl enable --now isu-go
-sudo -n systemctl restart isu-go
+sudo -n systemctl enable --now isu-kotlin
+sudo -n systemctl restart isu-kotlin
 EOF
-# go.sumをダウンロード
-rsync -az "$TARGET_HOST":~/private_isu/webapp/golang/go.sum ./private_isu/webapp/golang/go.sum
 
 end_timer "$@"
