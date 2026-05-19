@@ -112,6 +112,21 @@ unzip -p /usr/local/lib/opentelemetry-javaagent.jar META-INF/MANIFEST.MF | grep 
 EOF
 }
 
+# Set up pyroscope.jar
+# ref: https://github.com/grafana/pyroscope-java/releases
+# https://github.com/grafana/pyroscope-java/releases/download/v2.5.2/pyroscope.jar
+setup_pyroscope_javaagent() {
+  ssh -F "$SSH_CONFIG_FILE" -o BatchMode=yes "$TARGET_HOST" <<'EOF'
+set -euo pipefail
+
+curl -fsSL -o pyroscope.jar https://github.com/grafana/pyroscope-java/releases/download/v2.5.2/pyroscope.jar
+sudo -n mv pyroscope.jar /usr/local/lib/pyroscope.jar
+
+echo -n "Pyroscope Java Agent "
+unzip -p /usr/local/lib/pyroscope.jar META-INF/MANIFEST.MF | grep -i "Premain-Class"
+EOF
+}
+
 start_timer "$@"
 (($# == 1)) || (echo '引数は1つだけ必要です' >&2 && usage)
 readonly TARGET_HOST="$1"
@@ -125,5 +140,6 @@ setup_mysqldef
 setup_docker
 setup_otelcol_contrib
 setup_otel_javaagent
+setup_pyroscope_javaagent
 
 end_timer "$@"

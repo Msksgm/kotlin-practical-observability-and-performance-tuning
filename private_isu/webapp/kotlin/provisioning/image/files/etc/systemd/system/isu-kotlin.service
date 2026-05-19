@@ -13,9 +13,15 @@ Environment=ISUCONP_DB_NAME=isuconp
 Environment=ISUCONP_DB_USER=isuconp
 Environment=ISUCONP_DB_PASSWORD=isuconp
 Environment=ISUCONP_MEMCACHED_ADDRESS=localhost:11211
-Environment=JAVA_OPTS=-javaagent:/usr/local/lib/opentelemetry-javaagent.jar
+Environment="JAVA_OPTS=-javaagent:/usr/local/lib/opentelemetry-javaagent.jar -javaagent:/usr/local/lib/pyroscope.jar"
 Environment=OTEL_SERVICE_NAME=private-isu-kotlin
 Environment=OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318
+Environment=PYROSCOPE_APPLICATION_NAME=private-isu-kotlin
+Environment=PYROSCOPE_SERVER_ADDRESS=http://192.168.1.30:4040
+Environment=PYROSCOPE_FORMAT=jfr
+Environment=PYROSCOPE_PROFILER_EVENT=itimer
+Environment=PYROSCOPE_PROFILER_ALLOC=512k
+Environment=PYROSCOPE_PROFILER_LOCK=10ms
 ExecStart=/home/isucon/private_isu/webapp/kotlin/build/install/private-isu-kotlin/bin/private-isu-kotlin
 Restart=on-failure
 RestartSec=2
