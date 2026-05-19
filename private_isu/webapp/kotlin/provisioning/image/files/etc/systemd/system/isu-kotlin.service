@@ -13,6 +13,9 @@ Environment=ISUCONP_DB_NAME=isuconp
 Environment=ISUCONP_DB_USER=isuconp
 Environment=ISUCONP_DB_PASSWORD=isuconp
 Environment=ISUCONP_MEMCACHED_ADDRESS=localhost:11211
+Environment=JAVA_OPTS=-javaagent:/usr/local/lib/opentelemetry-javaagent.jar
+Environment=OTEL_SERVICE_NAME=private-isu-kotlin
+Environment=OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318
 ExecStart=/home/isucon/private_isu/webapp/kotlin/build/install/private-isu-kotlin/bin/private-isu-kotlin
 Restart=on-failure
 RestartSec=2

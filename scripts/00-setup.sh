@@ -97,6 +97,21 @@ sudo -n apt-get install -qq ./otelcol-contrib_0.142.0_linux_$(dpkg --print-archi
 EOF
 }
 
+# Set up opentelemetry-javaagent.jar
+# ref: https://github.com/open-telemetry/opentelemetry-java-instrumentation/releases
+# https://github.com/open-telemetry/opentelemetry-java-instrumentation/releases/download/v2.27.0/opentelemetry-javaagent.jar
+setup_otel_javaagent() {
+  ssh -F "$SSH_CONFIG_FILE" -o BatchMode=yes "$TARGET_HOST" <<'EOF'
+set -euo pipefail
+
+curl -fsSL -o opentelemetry-javaagent.jar https://github.com/open-telemetry/opentelemetry-java-instrumentation/releases/download/v2.27.0/opentelemetry-javaagent.jar
+sudo -n mv opentelemetry-javaagent.jar /usr/local/lib/opentelemetry-javaagent.jar
+
+echo -n "OpenTelemetry Java Agent "
+unzip -p /usr/local/lib/opentelemetry-javaagent.jar META-INF/MANIFEST.MF | grep -i "Implementation-Version"
+EOF
+}
+
 start_timer "$@"
 (($# == 1)) || (echo '引数は1つだけ必要です' >&2 && usage)
 readonly TARGET_HOST="$1"
@@ -109,5 +124,6 @@ setup_apt
 setup_mysqldef
 setup_docker
 setup_otelcol_contrib
+setup_otel_javaagent
 
 end_timer "$@"
