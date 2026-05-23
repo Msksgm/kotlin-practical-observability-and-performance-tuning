@@ -66,6 +66,7 @@ data class Comment(
     var user: User? = null,
 )
 
+
 class MemcachedSessionStorage(
     private val client: MemcachedClient,
     private val keyPrefix: String = "isuconp-kotlin.session:",
@@ -215,14 +216,6 @@ private fun makePostsNew(results: List<Post>, csrfToken: String, allComments: Bo
         // reverse
         comments.reverse()
         post.comments = comments
-
-        post.user = jdbi.withHandle<User, Exception> { h ->
-            h.createQuery("SELECT * FROM users WHERE id = :id")
-                .bind("id", post.userId)
-                .mapTo<User>()
-                .findOne()
-                .orElse(null)
-        }
 
         post.csrfToken = csrfToken
 
@@ -440,18 +433,36 @@ private suspend fun RoutingContext.getIndex() {
     val results = jdbi.withHandle<List<Post>, Exception> { h ->
         h.createQuery("""
             SELECT
-                posts.id as id
-                , posts.user_id as user_id
-                , posts.body as body
-                , posts.mime as mime
-                , posts.created_at as created_at
+                posts.id, posts.user_id, posts.body, posts.mime, posts.created_at,
+                users.id        AS u_id,
+                users.account_name,
+                users.passhash,
+                users.authority,
+                users.del_flg,
+                users.created_at AS u_created_at
             FROM posts
             JOIN users ON posts.user_id = users.id
             WHERE users.del_flg = 0
             ORDER BY posts.created_at DESC
             LIMIT 20
         """.trimIndent())
-            .mapTo<Post>()
+            .map { rs, _ ->
+                Post(
+                    id        = rs.getInt("id"),
+                    userId    = rs.getInt("user_id"),
+                    body      = rs.getString("body"),
+                    mime      = rs.getString("mime"),
+                    createdAt = rs.getObject("created_at", OffsetDateTime::class.java),
+                    user = User(
+                        id          = rs.getInt("u_id"),
+                        accountName = rs.getString("account_name"),
+                        passhash    = rs.getString("passhash"),
+                        authority   = rs.getInt("authority"),
+                        delFlg      = rs.getInt("del_flg"),
+                        createdAt   = rs.getObject("u_created_at", OffsetDateTime::class.java),
+                    )
+                )
+            }
             .list()
     }
 
