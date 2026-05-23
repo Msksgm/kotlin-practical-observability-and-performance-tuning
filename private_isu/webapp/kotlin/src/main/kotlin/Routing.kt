@@ -177,6 +177,61 @@ private fun tryLogin(accountName: String?, password: String?): User? {
     }
 }
 
+private fun makePostsNew(results: List<Post>, csrfToken: String, allComments: Boolean): List<Post> {
+    val posts = mutableListOf<Post>()
+
+    for (post in results) {
+        post.commentCount = jdbi.withHandle<Int, Exception> { h ->
+            h.createQuery("SELECT COUNT(*) AS count FROM comments WHERE post_id = :post_id")
+                .bind("post_id", post.id)
+                .mapTo<Int>()
+                .findOne()
+                .orElse(0)
+        }
+
+
+        var query = "SELECT * FROM comments WHERE post_id = :post_id ORDER BY created_at DESC"
+        if (!allComments) {
+            query += " LIMIT 3"
+        }
+
+        val comments = jdbi.withHandle<MutableList<Comment>, Exception> { h ->
+            h.createQuery(query)
+                .bind("post_id", post.id)
+                .mapTo<Comment>()
+                .list()
+        }
+
+        for (i in comments.indices) {
+            comments[i].user = jdbi.withHandle<User, Exception> { h ->
+                h.createQuery("SELECT * FROM users WHERE id = :id")
+                    .bind("id", comments[i].userId)
+                    .mapTo<User>()
+                    .findOne()
+                    .getOrNull()
+            }
+        }
+
+        // reverse
+        comments.reverse()
+        post.comments = comments
+
+        post.user = jdbi.withHandle<User, Exception> { h ->
+            h.createQuery("SELECT * FROM users WHERE id = :id")
+                .bind("id", post.userId)
+                .mapTo<User>()
+                .findOne()
+                .orElse(null)
+        }
+
+        post.csrfToken = csrfToken
+
+        posts.add(post)
+    }
+
+    return posts
+}
+
 private fun ApplicationCall.getSessionUser(): User? {
     val session = sessions.get<UserSession>() ?: return null
     val userId = session.userId
@@ -383,13 +438,24 @@ private suspend fun RoutingContext.getLogout() {
 private suspend fun RoutingContext.getIndex() {
     val me = call.getSessionUser()
     val results = jdbi.withHandle<List<Post>, Exception> { h ->
-        h.createQuery("SELECT id, user_id, body, mime, created_at FROM posts ORDER BY created_at DESC")
+        h.createQuery("""
+            SELECT
+                posts.id as id
+                , posts.user_id as user_id
+                , posts.body as body
+                , posts.mime as mime
+                , posts.created_at as created_at
+            FROM posts
+            JOIN users ON posts.user_id = users.id
+            WHERE users.del_flg = 0
+            ORDER BY posts.created_at DESC
+            LIMIT 20
+        """.trimIndent())
             .mapTo<Post>()
             .list()
     }
 
-
-    val posts = makePosts(results, call.getCsrfToken(), false)
+    val posts = makePostsNew(results, call.getCsrfToken(), false)
 
     val flash = call.getFlash()
 
