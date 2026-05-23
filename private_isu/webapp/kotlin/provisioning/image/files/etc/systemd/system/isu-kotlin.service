@@ -16,6 +16,8 @@ Environment=ISUCONP_MEMCACHED_ADDRESS=localhost:11211
 Environment="JAVA_OPTS=-javaagent:/usr/local/lib/opentelemetry-javaagent.jar -javaagent:/usr/local/lib/pyroscope.jar"
 Environment=OTEL_SERVICE_NAME=private-isu-kotlin
 Environment=OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318
+Environment=OTEL_METRICS_EXPORTER=none
+Environment=OTEL_LOGS_EXPORTER=none
 Environment=PYROSCOPE_APPLICATION_NAME=private-isu-kotlin
 Environment=PYROSCOPE_SERVER_ADDRESS=http://192.168.1.30:4040
 Environment=PYROSCOPE_FORMAT=jfr
