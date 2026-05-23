@@ -273,6 +273,7 @@ private fun makePosts(results: List<Post>, csrfToken: String, allComments: Boole
 
 private suspend fun RoutingContext.getInitialize() {
     dbInitialize()
+    cleanupImages()
     call.respond(HttpStatusCode.OK)
 }
 
@@ -589,10 +590,10 @@ private suspend fun RoutingContext.postIndex() {
         return
     }
 
-    val mime = when {
-        fileContentType?.contains("jpeg") == true -> "image/jpeg"
-        fileContentType?.contains("png") == true -> "image/png"
-        fileContentType?.contains("gif") == true -> "image/gif"
+    val (mime, ext) = when {
+        fileContentType?.contains("jpeg") == true -> "image/jpeg" to "jpg"
+        fileContentType?.contains("png") == true -> "image/png" to "png"
+        fileContentType?.contains("gif") == true -> "image/gif" to "gif"
         else -> {
             val session = call.sessions.get<UserSession>() ?: UserSession()
             call.sessions.set(session.copy(notice = "投稿できる画像形式はjpgとpngとgifだけです"))
@@ -608,45 +609,23 @@ private suspend fun RoutingContext.postIndex() {
         return
     }
 
+    val emptyFileByte = ByteArray(0)
     val pid = jdbi.withHandle<Int, Exception> { h ->
         h.createUpdate("INSERT INTO posts (user_id, mime, imgdata, body) VALUES (:user_id,:mime,:imgdata,:body)")
             .bind("user_id", me.id)
             .bind("mime", mime)
-            .bind("imgdata", fileBytes)
+            .bind("imgdata", emptyFileByte)
             .bind("body", bodyParam)
             .executeAndReturnGeneratedKeys("id")
             .mapTo<Int>()
             .one()
     }
 
+    // アップロードされたファイルを配信ディレクトリに書き出し
+    val imgFile = "${ImageDir}/${pid}.${ext}"
+    // 例: /home/isucon/private_isu/webapp/public/image/〇〇.png
+    File(imgFile).writeBytes(fileBytes)
     call.respondRedirect("/posts/${pid}")
-}
-
-private suspend fun RoutingContext.getImage() {
-    val pid = call.parameters["id"]!!.toIntOrNull()
-    if (pid == null) {
-        call.respond(HttpStatusCode.NotFound)
-        return
-    }
-
-    val post = jdbi.withHandle<Post?, Exception> { h ->
-        h.createQuery("SELECT * FROM posts WHERE id = :id")
-            .bind("id", pid)
-            .mapTo<Post>()
-            .findOne()
-            .orElse(null)
-    } ?: return
-
-    val ext = call.parameters["ext"]!!
-
-    if (ext == "jpg" && post.mime == "image/jpeg" ||
-        ext == "png" && post.mime == "image/png" ||
-        ext == "gif" && post.mime == "image/gif") {
-        call.respondBytes(post.imgData!!, ContentType.parse(post.mime))
-        return
-    }
-    call.respond(HttpStatusCode.NotFound)
-    return
 }
 
 private suspend fun RoutingContext.postComment() {
@@ -756,7 +735,6 @@ fun Application.configureRouting() {
         get("/posts") { getPosts() }
         get("/posts/{id}") { getPostsId() }
         post("/") { postIndex() }
-        get(Regex("""/image/(?<id>\w+)\.(?<ext>\w+)""")) { getImage() }
         post("/comment") { postComment() }
         get("/admin/banned") { getAdminBanned() }
         post("/admin/banned") { postAdminBanned() }
