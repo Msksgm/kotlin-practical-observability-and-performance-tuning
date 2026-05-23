@@ -259,66 +259,6 @@ object TemplateHelpers {
     }
 }
 
-private fun makePosts(results: List<Post>, csrfToken: String, allComments: Boolean): List<Post> {
-    val posts = mutableListOf<Post>()
-
-    for (post in results) {
-        post.commentCount = jdbi.withHandle<Int, Exception> { h ->
-            h.createQuery("SELECT COUNT(*) AS count FROM comments WHERE post_id = :post_id")
-                .bind("post_id", post.id)
-                .mapTo<Int>()
-                .findOne()
-                .orElse(0)
-        }
-
-
-        var query = "SELECT * FROM comments WHERE post_id = :post_id ORDER BY created_at DESC"
-        if (!allComments) {
-            query += " LIMIT 3"
-        }
-
-        val comments = jdbi.withHandle<MutableList<Comment>, Exception> { h ->
-            h.createQuery(query)
-                .bind("post_id", post.id)
-                .mapTo<Comment>()
-                .list()
-        }
-
-        for (i in comments.indices) {
-            comments[i].user = jdbi.withHandle<User, Exception> { h ->
-                h.createQuery("SELECT * FROM users WHERE id = :id")
-                    .bind("id", comments[i].userId)
-                    .mapTo<User>()
-                    .findOne()
-                    .getOrNull()
-            }
-        }
-
-        // reverse
-        comments.reverse()
-        post.comments = comments
-
-        post.user = jdbi.withHandle<User, Exception> { h ->
-            h.createQuery("SELECT * FROM users WHERE id = :id")
-                .bind("id", post.userId)
-                .mapTo<User>()
-                .findOne()
-                .orElse(null)
-        }
-
-        post.csrfToken = csrfToken
-
-        if (post.user?.delFlg == 0) {
-            posts.add(post)
-        }
-        if (posts.size >= postsPerPage) {
-            break
-        }
-    }
-
-    return posts
-}
-
 private suspend fun RoutingContext.getInitialize() {
     dbInitialize()
     cleanupImages()
@@ -499,13 +439,47 @@ private suspend fun RoutingContext.getAccountName() {
     }
 
     val results = jdbi.withHandle<List<Post>, Exception> { h ->
-        h.createQuery("SELECT id, user_id, body, mime, created_at FROM posts WHERE user_id = :user_id ORDER BY created_at DESC")
+        h.createQuery("""
+            SELECT
+                posts.id as post_id
+                , posts.user_id as user_id
+                , posts.body as post_body
+                , posts.mime as post_mime
+                , posts.created_at as post_created_at
+                , users.id as user_id
+                , users.account_name as user_account_name
+                , users.passhash as user_passhash
+                , users.authority as user_authority
+                , users.del_flg as user_del_flg
+                , users.created_at as user_created_at
+            FROM posts
+            JOIN users ON posts.user_id = users.id
+            WHERE posts.user_id = :user_id
+            ORDER BY posts.created_at DESC
+            LIMIT 20
+        """.trimIndent())
             .bind("user_id", user.id)
-            .mapTo<Post>()
+            .map { rs, _ ->
+                Post(
+                    id        = rs.getInt("post_id"),
+                    userId    = rs.getInt("user_id"),
+                    body      = rs.getString("post_body"),
+                    mime      = rs.getString("post_mime"),
+                    createdAt = rs.getObject("post_created_at", OffsetDateTime::class.java),
+                    user = User(
+                        id          = rs.getInt("user_id"),
+                        accountName = rs.getString("user_account_name"),
+                        passhash    = rs.getString("user_passhash"),
+                        authority   = rs.getInt("user_authority"),
+                        delFlg      = rs.getInt("user_del_flg"),
+                        createdAt   = rs.getObject("user_created_at", OffsetDateTime::class.java),
+                    )
+                )
+            }
             .list()
     }
 
-    val posts = makePosts(results, call.getCsrfToken(), false)
+    val posts = makePostsNew(results, call.getCsrfToken(), false)
 
     val commentCount = jdbi.withHandle<Int, Exception> { h ->
         h.createQuery("SELECT COUNT(*) AS count FROM comments WHERE user_id = :user_id")
@@ -566,13 +540,55 @@ private suspend fun RoutingContext.getPosts() {
     }
 
     val results = jdbi.withHandle<List<Post>, Exception> { h ->
-        h.createQuery("SELECT id, user_id, body, mime, created_at FROM posts WHERE created_at <= :created_at ORDER BY created_at DESC")
+        h.createQuery("""
+            SELECT
+                posts.id as post_id
+                , posts.user_id as post_user_id
+                , posts.body as post_body
+                , posts.mime as post_mime
+                , posts.created_at as post_created_at
+
+                , users.id as user_id
+                , users.account_name as user_account_name
+                , users.passhash as user_passhash
+                , users.authority as user_authority
+                , users.del_flg as user_del_flg
+                , users.created_at as user_created_at
+            FROM
+                posts
+            JOIN
+                users
+                ON posts.user_id = users.id
+            WHERE
+                posts.created_at <= :created_at
+                AND users.del_flg = 0
+            ORDER BY
+                posts.created_at DESC
+            LIMIT
+                20
+        """.trimIndent())
             .bind("created_at", t.format(DateTimeFormatter.ISO_OFFSET_DATE_TIME))
-            .mapTo<Post>()
+            .map { rs, _ ->
+                Post(
+                    id        = rs.getInt("post_id"),
+                    userId    = rs.getInt("user_id"),
+                    body      = rs.getString("post_body"),
+                    mime      = rs.getString("post_mime"),
+                    createdAt = rs.getObject("post_created_at", OffsetDateTime::class.java),
+                    user = User(
+                        id          = rs.getInt("user_id"),
+                        accountName = rs.getString("user_account_name"),
+                        passhash    = rs.getString("user_passhash"),
+                        authority   = rs.getInt("user_authority"),
+                        delFlg      = rs.getInt("user_del_flg"),
+                        createdAt   = rs.getObject("user_created_at", OffsetDateTime::class.java),
+                    )
+                )
+            }
             .list()
     }
 
-    val posts = makePosts(results, call.getCsrfToken(), false)
+    val posts = makePostsNew(results, call.getCsrfToken(), false)
 
     if (posts.isEmpty()) {
         call.respond(HttpStatusCode.NotFound)
@@ -598,13 +614,47 @@ private suspend fun RoutingContext.getPostsId() {
     }
 
     val results = jdbi.withHandle<List<Post>, Exception> { h ->
-        h.createQuery("SELECT * FROM posts WHERE id = :id")
-            .bind("id", pid)
-            .mapTo<Post>()
+        h.createQuery("""
+            SELECT
+                posts.id as post_id
+                , posts.user_id as post_user_id
+                , posts.body as post_body
+                , posts.mime as post_mime
+                , posts.created_at as post_created_at
+            
+                , users.id as user_id
+                , users.account_name as user_account_name
+                , users.passhash as user_passhash
+                , users.authority as user_authority
+                , users.del_flg as user_del_flg
+                , users.created_at as user_created_at
+            FROM posts
+            JOIN users ON posts.user_id = users.id
+            WHERE posts.id = :post_id
+            AND users.del_flg = 0
+        """.trimIndent())
+            .bind("post_id", pid)
+            .map { rs, _ ->
+                Post(
+                    id        = rs.getInt("post_id"),
+                    userId    = rs.getInt("user_id"),
+                    body      = rs.getString("post_body"),
+                    mime      = rs.getString("post_mime"),
+                    createdAt = rs.getObject("post_created_at", OffsetDateTime::class.java),
+                    user = User(
+                        id          = rs.getInt("user_id"),
+                        accountName = rs.getString("user_account_name"),
+                        passhash    = rs.getString("user_passhash"),
+                        authority   = rs.getInt("user_authority"),
+                        delFlg      = rs.getInt("user_del_flg"),
+                        createdAt   = rs.getObject("user_created_at", OffsetDateTime::class.java),
+                    )
+                )
+            }
             .list()
     }
 
-    val posts = makePosts(results, call.getCsrfToken(), true)
+    val posts = makePostsNew(results, call.getCsrfToken(), true)
 
     if (posts.isEmpty()) {
         call.respond(HttpStatusCode.NotFound)
