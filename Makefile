@@ -19,6 +19,7 @@ deploy: ## デプロイ
 	@scripts/01-deploy-nginx.sh web
 	@scripts/01-deploy-mysql.sh web
 	@scripts/01-upload-and-run-onetime-scripts.sh web
+	@scripts/01-warmup.sh web
 
 .PHONY: analyze
 analyze: ## 分析
