@@ -101,6 +101,8 @@ private val dataSource: HikariDataSource by lazy {
         username = System.getenv("ISUCONP_DB_USER") ?: "root"
         password = System.getenv("ISUCONP_DB_PASSWORD") ?: "root"
         maximumPoolSize = 10
+        connectionTimeout = 5000 // デフォルト 30 s。クライアントがプールからコネクションを取得するまで 待機する最大時間（ミリ秒）。
+        keepaliveTime = 60000 // デフォルト 0。コネクションの死活確認。再実行時に使い回しをしようとして warning を防ぐ
         // Go リファレンス実装の database/sql は接続を遅延確立するので、
         // HikariCP の起動時接続検証 (checkFailFast) も無効化して挙動を揃える。
         // これがないと MySQL temp server 段階で構築失敗 → by lazy 再呼びループになる。
