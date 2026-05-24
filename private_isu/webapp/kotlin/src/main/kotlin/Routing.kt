@@ -231,15 +231,8 @@ private fun makePostsNew(results: List<Post>, csrfToken: String, allComments: Bo
 
 
     for (post in results) {
-        post.commentCount = jdbi.withHandle<Int, Exception> { h ->
-            h.createQuery("SELECT COUNT(*) AS count FROM comments WHERE post_id = :post_id")
-                .bind("post_id", post.id)
-                .mapTo<Int>()
-                .findOne()
-                .orElse(0)
-        }
-
         var comments = commentsMap[post.id] ?: emptyList()
+        post.commentCount = comments.size
         if (!allComments) {
             val limit = if (comments.size > 3) {
                 3
@@ -247,16 +240,6 @@ private fun makePostsNew(results: List<Post>, csrfToken: String, allComments: Bo
                 comments.size
             }
             comments = comments.subList(0, limit)
-        }
-
-        for (i in comments.indices) {
-            comments[i].user = jdbi.withHandle<User, Exception> { h ->
-                h.createQuery("SELECT * FROM users WHERE id = :id")
-                    .bind("id", comments[i].userId)
-                    .mapTo<User>()
-                    .findOne()
-                    .getOrNull()
-            }
         }
 
         // reverse
