@@ -181,7 +181,54 @@ private fun tryLogin(accountName: String?, password: String?): User? {
 }
 
 private fun makePostsNew(results: List<Post>, csrfToken: String, allComments: Boolean): List<Post> {
+    if (results.isEmpty()) {
+        return emptyList()
+    }
     val posts = mutableListOf<Post>()
+
+    // コメントをまとめて取得
+    val postIds = results.map { it.id }
+    val commentsMap = jdbi.withHandle<List<Comment>, Exception> { h ->
+        h.createQuery("""
+            SELECT
+                comments.id as comment_id
+                , comments.post_id as comment_post_id
+                , comments.user_id as comment_user_id
+                , comments.comment as comment_comment
+                , comments.created_at as comment_created_at
+            
+                , users.id as user_id
+                , users.account_name as user_account_name
+                , users.passhash as user_passhash
+                , users.authority as user_authority
+                , users.del_flg as user_del_flg
+                , users.created_at as user_created_at
+            FROM comments
+            JOIN users ON comments.user_id = users.id
+            WHERE post_id IN (<post_ids>)
+            ORDER BY comments.created_at DESC
+        """.trimIndent())
+            .bindList("post_ids", postIds)
+            .map { rs, _ ->
+                Comment(
+                    id        = rs.getInt("comment_id"),
+                    postId    = rs.getInt("comment_post_id"),
+                    userId    = rs.getInt("comment_user_id"),
+                    comment   = rs.getString("comment_comment"),
+                    createdAt = rs.getObject("comment_created_at", OffsetDateTime::class.java),
+                    user = User(
+                        id          = rs.getInt("user_id"),
+                        accountName = rs.getString("user_account_name"),
+                        passhash    = rs.getString("user_passhash"),
+                        authority   = rs.getInt("user_authority"),
+                        delFlg      = rs.getInt("user_del_flg"),
+                        createdAt   = rs.getObject("user_created_at", OffsetDateTime::class.java),
+                    )
+                )
+            }
+            .list()
+    }.groupBy { it.postId }
+
 
     for (post in results) {
         post.commentCount = jdbi.withHandle<Int, Exception> { h ->
@@ -192,52 +239,14 @@ private fun makePostsNew(results: List<Post>, csrfToken: String, allComments: Bo
                 .orElse(0)
         }
 
-
-        var query = """
-            SELECT
-                comments.id as comment_id
-                , comments.post_id as comment_post_id
-                , comments.user_id as comment_user_id
-                , comments.comment as comment_comment
-                , comments.created_at comment_created_at
-                
-                , users.id as user_id
-                , users.account_name as user_account_name
-                , users.passhash as user_passhash
-                , users.authority as user_authority
-                , users.del_flg as user_del_flg
-                , users.created_at as user_created_at
-            FROM
-                comments
-            JOIN users ON comments.user_id = users.id
-            WHERE comments.post_id = :post_id
-            ORDER BY comments.created_at DESC
-        """.trimIndent()
+        var comments = commentsMap[post.id] ?: emptyList()
         if (!allComments) {
-            query += " LIMIT 3"
-        }
-
-        val comments = jdbi.withHandle<MutableList<Comment>, Exception> { h ->
-            h.createQuery(query)
-                .bind("post_id", post.id)
-                .map { rs, _ ->
-                    Comment(
-                        id        = rs.getInt("comment_id"),
-                        postId    = rs.getInt("comment_post_id"),
-                        userId    = rs.getInt("comment_user_id"),
-                        comment   = rs.getString("comment_comment"),
-                        createdAt = rs.getObject("comment_created_at", OffsetDateTime::class.java),
-                        user = User(
-                            id          = rs.getInt("user_id"),
-                            accountName = rs.getString("user_account_name"),
-                            passhash    = rs.getString("user_passhash"),
-                            authority   = rs.getInt("user_authority"),
-                            delFlg      = rs.getInt("user_del_flg"),
-                            createdAt   = rs.getObject("user_created_at", OffsetDateTime::class.java),
-                        )
-                    )
-                }
-                .list()
+            val limit = if (comments.size > 3) {
+                3
+            } else {
+                comments.size
+            }
+            comments = comments.subList(0, limit)
         }
 
         for (i in comments.indices) {
@@ -251,8 +260,7 @@ private fun makePostsNew(results: List<Post>, csrfToken: String, allComments: Bo
         }
 
         // reverse
-        comments.reverse()
-        post.comments = comments
+        post.comments = comments.reversed()
 
         post.csrfToken = csrfToken
 
